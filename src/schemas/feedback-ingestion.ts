@@ -3,7 +3,7 @@ import { z } from 'zod';
 const optionalText = z.string().trim().max(500).optional();
 
 export const feedbackIngestionSchema = z.object({
-  message: z.string().trim().min(1, 'message is required').max(20_000, 'message cannot exceed 20,000 characters'),
+  message: z.string().min(1, 'message is required').max(20_000, 'message cannot exceed 20,000 characters').refine((value) => value.trim().length > 0, 'message cannot be empty'),
   user_id: optionalText,
   conversation_id: optionalText,
   project_id: optionalText,

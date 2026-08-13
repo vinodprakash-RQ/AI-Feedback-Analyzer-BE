@@ -13,6 +13,7 @@ describe('feedback ingestion request', () => {
       metadata: { request_id: 'req_123', environment: 'production' },
     });
     expect(result.message).toContain('failing');
+    expect(feedbackIngestionSchema.parse({ message: '  preserve this  ' }).message).toBe('  preserve this  ');
   });
 
   it('rejects empty and oversized input', () => {
