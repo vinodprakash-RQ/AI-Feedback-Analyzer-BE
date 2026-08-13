@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum FeedbackStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum FeedbackPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum FeedbackCategory {
+  BUG
+  FEATURE_REQUEST
+  QUESTION
+  OTHER
+}
+
+enum FeedbackSource {
+  IN_APP
+  EMAIL
+  SUPPORT_TICKET
+  API
+}
+
+model Feedback {
+  id          String           @id @default(cuid())
+  title       String
+  description String
+  status      FeedbackStatus   @default(OPEN)
+  priority    FeedbackPriority @default(MEDIUM)
+  category    FeedbackCategory @default(BUG)
+  source      FeedbackSource   @default(IN_APP)
+  reporterEmail String?
+  assignee    String?
+  tags        String[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  resolvedAt  DateTime?
+
+  @@index([status, priority])
+  @@index([category, createdAt])
+  @@index([createdAt])
+}
