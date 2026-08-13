@@ -14,7 +14,7 @@ enum FeedbackStatus {
   CLOSED
 }
 
-enum FeedbackPriority {
+enum FeedbackSeverity {
   LOW
   MEDIUM
   HIGH
@@ -22,10 +22,21 @@ enum FeedbackPriority {
 }
 
 enum FeedbackCategory {
-  BUG
-  FEATURE_REQUEST
-  QUESTION
+  APPLICATION_GENERATION
+  AI_RESPONSE
+  BUILD_FAILURE
+  UI_UX
+  AUTHENTICATION
+  PERFORMANCE
+  INTEGRATION
   OTHER
+}
+
+enum FeedbackSentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+  FRUSTRATED
 }
 
 enum FeedbackSource {
@@ -40,8 +51,9 @@ model Feedback {
   title       String
   description String
   status      FeedbackStatus   @default(OPEN)
-  priority    FeedbackPriority @default(MEDIUM)
-  category    FeedbackCategory @default(BUG)
+  severity    FeedbackSeverity @default(MEDIUM)
+  category    FeedbackCategory @default(OTHER)
+  sentiment   FeedbackSentiment @default(NEUTRAL)
   source      FeedbackSource   @default(IN_APP)
   reporterEmail String?
   assignee    String?
@@ -50,7 +62,8 @@ model Feedback {
   updatedAt   DateTime         @updatedAt
   resolvedAt  DateTime?
 
-  @@index([status, priority])
+  @@index([status, severity])
   @@index([category, createdAt])
+  @@index([sentiment, createdAt])
   @@index([createdAt])
 }
