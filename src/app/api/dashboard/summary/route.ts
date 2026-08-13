@@ -1,11 +1,8 @@
 import { NextResponse } from 'next/server';
-import { handleApiError } from '@/lib/api';
-import { getDashboardSummary } from '@/services/feedback.service';
 
-export async function GET() {
-  try {
-    return NextResponse.json(await getDashboardSummary());
-  } catch (error) {
-    return handleApiError(error);
-  }
+export function GET() {
+  return NextResponse.json(
+    { error: 'Dashboard summary is not part of the issue-list module. Use /api/issues.' },
+    { status: 410 },
+  );
 }

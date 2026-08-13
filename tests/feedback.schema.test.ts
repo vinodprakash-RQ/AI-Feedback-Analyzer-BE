@@ -1,21 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { feedbackCreateSchema, feedbackListSchema } from '../src/schemas/feedback';
+import { issueCategory, issueSentiment, issueSeverity, issueStatus } from '../src/schemas/issue';
 
-describe('feedback schemas', () => {
-  it('applies defaults for a minimal feedback report', () => {
-    expect(feedbackCreateSchema.parse({ title: 'Login fails', description: 'Cannot sign in' })).toMatchObject({
-      priority: 'MEDIUM',
-      category: 'BUG',
-      source: 'IN_APP',
-      tags: [],
-    });
-  });
-
-  it('rejects invalid reporter email', () => {
-    expect(() => feedbackCreateSchema.parse({ title: 'Issue', description: 'Details', reporterEmail: 'not-an-email' })).toThrow();
-  });
-
-  it('coerces pagination query values', () => {
-    expect(feedbackListSchema.parse({ page: '2', pageSize: '10' })).toMatchObject({ page: 2, pageSize: 10 });
+describe('issue dimensions', () => {
+  it('supports the dashboard category, sentiment, severity, and status values', () => {
+    expect(issueCategory.parse('APPLICATION_GENERATION')).toBe('APPLICATION_GENERATION');
+    expect(issueSentiment.parse('NEGATIVE')).toBe('NEGATIVE');
+    expect(issueSeverity.parse('CRITICAL')).toBe('CRITICAL');
+    expect(issueStatus.parse('INVESTIGATING')).toBe('INVESTIGATING');
   });
 });
