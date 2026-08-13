@@ -46,6 +46,59 @@ enum FeedbackSource {
   API
 }
 
+enum SubmissionStatus {
+  RECEIVED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum AnalysisIntent {
+  BUG_REPORT
+  FEATURE_REQUEST
+  QUESTION
+  OTHER
+}
+
+model FeedbackSubmission {
+  id             String           @id @default(cuid())
+  message        String
+  userId         String?
+  conversationId String?
+  projectId      String?
+  source         String?
+  pageUrl        String?
+  userAgent      String?
+  metadata       Json?
+  idempotencyKey String?
+  apiClient      String
+  status         SubmissionStatus @default(RECEIVED)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  analysis       FeedbackAnalysis?
+
+  @@unique([apiClient, idempotencyKey])
+  @@index([createdAt])
+  @@index([status, createdAt])
+}
+
+model FeedbackAnalysis {
+  id           String         @id @default(cuid())
+  feedbackId   String         @unique
+  sentiment    FeedbackSentiment
+  intent       AnalysisIntent
+  category     FeedbackCategory
+  subcategory  String
+  severity     FeedbackSeverity
+  summary      String
+  confidence   Float
+  model        String
+  promptVersion String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  feedback     FeedbackSubmission @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+}
+
 model Feedback {
   id          String           @id @default(cuid())
   title       String
