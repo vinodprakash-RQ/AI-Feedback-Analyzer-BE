@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
 import { logFeedbackApiEvent } from '@/lib/feedback-api';
-import { analyzeFeedbackWithClaude } from '@/services/claude-analysis.service';
+import { analyzeFeedbackWithGemini } from '@/services/gemini-analysis.service';
 import type { FeedbackIngestionInput } from '@/schemas/feedback-ingestion';
 
 export async function createFeedbackSubmission(input: FeedbackIngestionInput, apiClient: string, idempotencyKey?: string) {
@@ -34,7 +34,7 @@ export async function processFeedbackAnalysis(feedbackId: string, requestId: str
     const feedback = await prisma.feedbackSubmission.findUnique({ where: { id: feedbackId } });
     if (!feedback) return;
     await prisma.feedbackSubmission.update({ where: { id: feedbackId }, data: { status: 'PROCESSING' } });
-    const result = await analyzeFeedbackWithClaude(feedback.message);
+    const result = await analyzeFeedbackWithGemini(feedback.message);
     await prisma.$transaction([
       prisma.feedbackAnalysis.upsert({
         where: { feedbackId },
