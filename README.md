@@ -8,6 +8,7 @@ The issue-list module reads persisted feedback submissions plus their separately
 
 - `GET /api/issues` lists issues. Supports `category`, `subcategory`, `sentiment`, `severity`, `status`, `from`, `to`, `search`, `sort` (`newest`, `oldest`, `severity`), `page`, and `pageSize` query parameters.
 - `GET /api/issues/:id` returns issue details, including original feedback, AI summary, confidence, references, timestamp, and metadata.
+- `PATCH /api/issues/:id` updates the workflow status (`NEW`, `INVESTIGATING`, `RESOLVED`, or `CLOSED`). Send `{ "status": "CLOSED" }` to close an issue.
 - `GET /api/feedback` and `GET /api/feedback/:id` remain deprecated read-only aliases.
 - `POST /api/v1/feedback` accepts third-party feedback with an API key and returns `202 Accepted` with `feedback_id`, `status`, and `created_at`.
 
