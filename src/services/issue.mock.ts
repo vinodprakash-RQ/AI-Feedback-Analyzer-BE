@@ -15,7 +15,7 @@ export interface Issue {
   userReference: string;
   projectReference: string;
   conversationId: string;
-  metadata: Record<string, string>;
+  metadata: Record<string, unknown>;
 }
 
 export const mockIssues: Issue[] = [

@@ -65,6 +65,13 @@ enum SubmissionStatus {
   FAILED
 }
 
+enum IssueStatus {
+  NEW
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+}
+
 enum AnalysisIntent {
   BUG_REPORT
   FEATURE_REQUEST
@@ -85,6 +92,7 @@ model FeedbackSubmission {
   idempotencyKey String?
   apiClient      String
   status         SubmissionStatus @default(RECEIVED)
+  issueStatus    IssueStatus      @default(NEW)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   analysis       FeedbackAnalysis?
@@ -92,6 +100,7 @@ model FeedbackSubmission {
   @@unique([apiClient, idempotencyKey])
   @@index([createdAt])
   @@index([status, createdAt])
+  @@index([issueStatus, createdAt])
 }
 
 model FeedbackAnalysis {

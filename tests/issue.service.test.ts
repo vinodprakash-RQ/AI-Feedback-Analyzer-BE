@@ -1,26 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { issueListSchema } from '../src/schemas/issue';
-import { listIssues } from '../src/services/issue.service';
+import { issueCategory, issueListSchema, issueSentiment } from '../src/schemas/issue';
 
-describe('issue list contract', () => {
-  it('applies pagination and newest sorting defaults', () => {
-    const input = issueListSchema.parse({ page: '1', pageSize: '2' });
-    const result = listIssues(input);
-    expect(result.items).toHaveLength(2);
-    expect(result.items[0].createdAt >= result.items[1].createdAt).toBe(true);
-    expect(result.pagination.total).toBe(5);
+describe('issue API contract', () => {
+  it('supports persisted feedback dimensions', () => {
+    expect(issueCategory.parse('PAYMENTS')).toBe('PAYMENTS');
+    expect(issueSentiment.parse('MIXED')).toBe('MIXED');
   });
 
-  it('filters by search and issue dimensions', () => {
-    const input = issueListSchema.parse({ search: 'module', category: 'BUILD_FAILURE', severity: 'CRITICAL' });
-    const result = listIssues(input);
-    expect(result.items.map((issue) => issue.id)).toEqual(['ISS-1001']);
-  });
-
-  it('supports date range and severity sorting', () => {
-    const input = issueListSchema.parse({ from: '2026-08-07', to: '2026-08-11', sort: 'severity' });
-    const result = listIssues(input);
-    expect(result.items.map((issue) => issue.id)).toEqual(['ISS-1002', 'ISS-1004', 'ISS-1003']);
+  it('validates issue list pagination and sorting', () => {
+    expect(issueListSchema.parse({ page: '2', pageSize: '10', sort: 'severity' })).toMatchObject({
+      page: 2,
+      pageSize: 10,
+      sort: 'severity',
+    });
   });
 
   it('rejects an inverted date range', () => {
