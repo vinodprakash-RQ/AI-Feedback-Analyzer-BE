@@ -8,10 +8,21 @@ export const issueCategory = z.enum([
   'AUTHENTICATION',
   'PERFORMANCE',
   'INTEGRATION',
+  'PRODUCT_UI',
+  'FEATURE_REQUEST',
+  'PAYMENTS',
+  'CUSTOMER_SUPPORT',
+  'BUG_MOBILE',
+  'USABILITY',
+  'NOTIFICATIONS',
+  'ONBOARDING',
+  'SECURITY',
+  'AVAILABILITY',
+  'GENERAL',
   'OTHER',
 ]);
 export const issueSubcategory = z.string().trim().min(1).max(100);
-export const issueSentiment = z.enum(['POSITIVE', 'NEUTRAL', 'NEGATIVE', 'FRUSTRATED']);
+export const issueSentiment = z.enum(['POSITIVE', 'NEUTRAL', 'NEGATIVE', 'FRUSTRATED', 'MIXED']);
 export const issueSeverity = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 export const issueStatus = z.enum(['NEW', 'INVESTIGATING', 'RESOLVED', 'CLOSED']);
 export const issueSort = z.enum(['newest', 'oldest', 'severity']);
