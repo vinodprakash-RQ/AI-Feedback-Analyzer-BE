@@ -1,10 +1,27 @@
+import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
 import { logFeedbackApiEvent } from '@/lib/feedback-api';
 import { analyzeFeedbackWithGemini } from '@/services/gemini-analysis.service';
 import type { FeedbackIngestionInput } from '@/schemas/feedback-ingestion';
 
-export async function createFeedbackSubmission(input: FeedbackIngestionInput, apiClient: string, idempotencyKey?: string) {
+const MAX_ANALYSIS_ATTEMPTS = 3;
+const LOCK_TIMEOUT_MS = 10 * 60 * 1000;
+const RETRY_DELAYS_MS = [60_000, 5 * 60_000];
+
+type SubmissionWithRun = Prisma.FeedbackSubmissionGetPayload<{ include: { analysisRuns: true } }>;
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => [key, canonicalize(entry)]));
+  return value;
+}
+
+export function feedbackFingerprint(input: FeedbackIngestionInput) {
+  return createHash('sha256').update(JSON.stringify(canonicalize(input))).digest('hex');
+}
+
+export async function createFeedbackSubmission(input: FeedbackIngestionInput, apiClient: string, idempotencyKey?: string, fingerprint?: string) {
   return prisma.feedbackSubmission.create({
     data: {
       message: input.message,
@@ -17,6 +34,8 @@ export async function createFeedbackSubmission(input: FeedbackIngestionInput, ap
       metadata: input.metadata as Prisma.InputJsonValue | undefined,
       apiClient,
       idempotencyKey,
+      idempotencyFingerprint: fingerprint,
+      analysisRuns: { create: {} },
     },
     select: { id: true, status: true, createdAt: true },
   });
@@ -25,31 +44,94 @@ export async function createFeedbackSubmission(input: FeedbackIngestionInput, ap
 export async function findByIdempotencyKey(apiClient: string, key: string) {
   return prisma.feedbackSubmission.findUnique({
     where: { apiClient_idempotencyKey: { apiClient, idempotencyKey: key } },
-    select: { id: true, status: true, createdAt: true },
+    select: { id: true, status: true, createdAt: true, idempotencyFingerprint: true },
   });
 }
 
-export async function processFeedbackAnalysis(feedbackId: string, requestId: string) {
+function latestRun(submission: SubmissionWithRun) {
+  return [...submission.analysisRuns].sort((left, right) => right.attempt - left.attempt)[0];
+}
+
+async function claimNextAnalysisJob() {
+  const now = new Date();
+  await prisma.feedbackAnalysisRun.updateMany({
+    where: { status: 'PROCESSING', lockedAt: { lt: new Date(now.getTime() - LOCK_TIMEOUT_MS) } },
+    data: { status: 'PENDING', lockedAt: null, nextAttemptAt: now },
+  });
+
+  const candidate = await prisma.feedbackAnalysisRun.findFirst({
+    where: { status: 'PENDING', nextAttemptAt: { lte: now }, attempt: { lte: MAX_ANALYSIS_ATTEMPTS } },
+    orderBy: [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }],
+  });
+  if (!candidate) return null;
+
+  const claimed = await prisma.feedbackAnalysisRun.updateMany({
+    where: { id: candidate.id, status: 'PENDING' },
+    data: { status: 'PROCESSING', lockedAt: now },
+  });
+  return claimed.count === 1 ? candidate.id : null;
+}
+
+export async function processFeedbackAnalysis(runId: string, requestId = 'worker') {
+  const run = await prisma.feedbackAnalysisRun.findUnique({ where: { id: runId }, include: { feedback: true } });
+  if (!run || run.status !== 'PROCESSING') return;
+
   try {
-    const feedback = await prisma.feedbackSubmission.findUnique({ where: { id: feedbackId } });
-    if (!feedback) return;
-    await prisma.feedbackSubmission.update({ where: { id: feedbackId }, data: { status: 'PROCESSING' } });
-    const result = await analyzeFeedbackWithGemini(feedback.message);
-    await prisma.$transaction([
-      prisma.feedbackAnalysis.upsert({
-        where: { feedbackId },
-        create: { feedbackId, ...result },
-        update: { ...result },
-      }),
-      prisma.feedbackSubmission.update({ where: { id: feedbackId }, data: { status: 'COMPLETED' } }),
-    ]);
-    logFeedbackApiEvent({ event: 'feedback_analysis_completed', feedback_id: feedbackId, request_id: requestId });
+    const result = await analyzeFeedbackWithGemini(run.feedback.message);
+    await prisma.feedbackAnalysisRun.update({
+      where: { id: runId },
+      data: {
+        ...result,
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        lockedAt: null,
+        errorCode: null,
+        errorMessage: null,
+      },
+    });
+    logFeedbackApiEvent({ event: 'feedback_analysis_completed', feedback_id: run.feedbackId, run_id: runId, request_id: requestId });
   } catch (error) {
-    await prisma.feedbackSubmission.update({ where: { id: feedbackId }, data: { status: 'FAILED' } }).catch(() => undefined);
-    logFeedbackApiEvent({ event: 'feedback_analysis_failed', feedback_id: feedbackId, request_id: requestId, error: String(error) });
+    const retryable = run.attempt < MAX_ANALYSIS_ATTEMPTS;
+    const errorCode = retryable ? 'provider_retryable' : 'provider_failed';
+    const errorMessage = error instanceof Error ? error.message.slice(0, 500) : 'Unknown analysis error';
+    await prisma.$transaction(async (transaction) => {
+      await transaction.feedbackAnalysisRun.update({
+        where: { id: runId },
+        data: { status: 'FAILED', nextAttemptAt: new Date(), lockedAt: null, errorCode, errorMessage },
+      });
+      if (retryable) {
+        await transaction.feedbackAnalysisRun.create({
+          data: {
+            feedbackId: run.feedbackId,
+            attempt: run.attempt + 1,
+            nextAttemptAt: new Date(Date.now() + RETRY_DELAYS_MS[run.attempt - 1]),
+          },
+        });
+      }
+    });
+    logFeedbackApiEvent({ event: 'feedback_analysis_failed', feedback_id: run.feedbackId, run_id: runId, request_id: requestId, retryable });
   }
 }
 
-export function enqueueFeedbackAnalysis(feedbackId: string, requestId: string) {
-  queueMicrotask(() => void processFeedbackAnalysis(feedbackId, requestId));
+export async function processNextAnalysisJob(requestId = 'worker') {
+  const runId = await claimNextAnalysisJob();
+  if (!runId) return false;
+  await processFeedbackAnalysis(runId, requestId);
+  return true;
+}
+
+export async function processPendingAnalysisJobs(requestId = 'worker', maxJobs = 10) {
+  let processed = 0;
+  while (processed < maxJobs && await processNextAnalysisJob(requestId)) processed += 1;
+  return processed;
+}
+
+export function enqueueFeedbackAnalysis() {
+  // The database outbox is authoritative. This opportunistically starts local work;
+  // a separate worker must process pending jobs in production.
+  queueMicrotask(() => void processPendingAnalysisJobs('request-worker', 1));
+}
+
+export function getLatestAnalysis(submission: SubmissionWithRun) {
+  return latestRun(submission);
 }

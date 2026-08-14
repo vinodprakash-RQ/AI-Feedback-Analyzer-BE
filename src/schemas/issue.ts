@@ -26,6 +26,7 @@ export const issueSentiment = z.enum(['POSITIVE', 'NEUTRAL', 'NEGATIVE', 'FRUSTR
 export const issueSeverity = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 export const issueStatus = z.enum(['NEW', 'INVESTIGATING', 'RESOLVED', 'CLOSED']);
 export const issueSort = z.enum(['newest', 'oldest', 'severity']);
+export const issueUpdateSchema = z.object({ status: issueStatus });
 
 export const issueListSchema = z.object({
   category: issueCategory.optional(),
@@ -36,6 +37,7 @@ export const issueListSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD').optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD').optional(),
   search: z.string().trim().max(200).optional(),
+  project_id: z.string().trim().max(500).optional(),
   sort: issueSort.default('newest'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),

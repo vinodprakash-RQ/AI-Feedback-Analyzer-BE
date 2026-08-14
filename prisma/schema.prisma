@@ -79,6 +79,13 @@ enum AnalysisIntent {
   OTHER
 }
 
+enum AnalysisRunStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 model FeedbackSubmission {
   id             String           @id @default(cuid())
   message        String
@@ -90,12 +97,13 @@ model FeedbackSubmission {
   userAgent      String?
   metadata       Json?
   idempotencyKey String?
+  idempotencyFingerprint String?
   apiClient      String
   status         SubmissionStatus @default(RECEIVED)
   issueStatus    IssueStatus      @default(NEW)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
-  analysis       FeedbackAnalysis?
+  analysisRuns   FeedbackAnalysisRun[]
 
   @@unique([apiClient, idempotencyKey])
   @@index([createdAt])
@@ -103,21 +111,35 @@ model FeedbackSubmission {
   @@index([issueStatus, createdAt])
 }
 
-model FeedbackAnalysis {
-  id           String         @id @default(cuid())
-  feedbackId   String         @unique
-  sentiment    FeedbackSentiment
-  intent       AnalysisIntent
-  category     FeedbackCategory
-  subcategory  String
-  severity     FeedbackSeverity
-  summary      String
-  confidence   Float
-  model        String
-  promptVersion String
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  feedback     FeedbackSubmission @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+model FeedbackAnalysisRun {
+  id            String           @id @default(cuid())
+  feedbackId    String
+  attempt       Int              @default(1)
+  status        AnalysisRunStatus @default(PENDING)
+  sentiment     FeedbackSentiment?
+  intent        AnalysisIntent?
+  category      FeedbackCategory?
+  subcategory   String?
+  severity      FeedbackSeverity?
+  summary       String?
+  confidence    Float?
+  model         String?
+  promptVersion String?
+  errorCode     String?
+  errorMessage  String?
+  nextAttemptAt DateTime         @default(now())
+  lockedAt      DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  feedback      FeedbackSubmission @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+
+  @@unique([feedbackId, attempt])
+  @@index([status, nextAttemptAt])
+  @@index([feedbackId, status, createdAt])
+  @@index([category, createdAt])
+  @@index([sentiment, createdAt])
+  @@index([severity, createdAt])
 }
 
 model Feedback {

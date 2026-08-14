@@ -4,7 +4,7 @@ Backend-only Next.js API for the User Feedback & Issue Management dashboard.
 
 ## API
 
-The issue-list module is read-only and reads persisted feedback submissions plus their separately stored analysis results.
+The issue-list module reads persisted feedback submissions plus their separately stored analysis results. Issue endpoints require a dashboard API key. Configure `DASHBOARD_API_KEYS` as comma-separated `key=project_id_1|project_id_2` entries; use `*` for an administrator key with access to all projects.
 
 - `GET /api/issues` lists issues. Supports `category`, `subcategory`, `sentiment`, `severity`, `status`, `from`, `to`, `search`, `sort` (`newest`, `oldest`, `severity`), `page`, and `pageSize` query parameters.
 - `GET /api/issues/:id` returns issue details, including original feedback, AI summary, confidence, references, timestamp, and metadata.
@@ -13,6 +13,6 @@ The issue-list module is read-only and reads persisted feedback submissions plus
 
 The ingestion endpoint requires `x-api-key` (or `Authorization: Bearer`) and supports `Idempotency-Key` and `X-Request-ID`. Set `FEEDBACK_API_KEYS` to a comma-separated list of keys. The original message is persisted unchanged; analysis is stored separately and queued without delaying the acknowledgement.
 
-The asynchronous analysis worker sends feedback to Gemini using the Google Gen AI SDK. Configure `GEMINI_API_KEY` with a key from Google AI Studio and set `GEMINI_MODEL` to a model enabled for your account. The prompt, structured JSON response schema, and validation live in `src/services/gemini-analysis.service.ts`. The in-process rate limiter is suitable for a single instance only; use a shared Redis/token-bucket implementation before horizontal scaling.
+The asynchronous analysis worker sends feedback to Gemini using the Google Gen AI SDK. Configure `GEMINI_API_KEY` with a key from Google AI Studio and set `GEMINI_MODEL` to a model enabled for your account. The prompt, structured JSON response schema, redaction, and validation live in `src/services/gemini-analysis.service.ts`. Analysis jobs are persisted in PostgreSQL and can be processed by `npm run worker:analysis`; deploy that worker separately in production. The current in-process rate limiter is suitable for a single instance only; use a shared Redis/token-bucket implementation before horizontal scaling.
 
-No frontend UI is implemented in this module. After updating the Prisma schema, apply the local database changes with `npx prisma db push` before using the persisted issue endpoints.
+No frontend UI is implemented in this module. Create and review a migration with `npm run db:migrate:dev`, then deploy committed migrations with `npm run db:migrate:deploy`. Do not use `prisma db push` against production.

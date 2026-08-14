@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 const WINDOW_MS = 60_000;
 const MAX_REQUESTS_PER_WINDOW = 60;
@@ -9,14 +9,39 @@ export function getRequestId(request: Request) {
   return supplied && /^[a-zA-Z0-9._:-]{1,100}$/.test(supplied) ? supplied : randomUUID();
 }
 
+function suppliedApiKey(request: Request) {
+  return request.headers.get('x-api-key') ?? request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+}
+
+function matchesKey(supplied: string, configured: string) {
+  const suppliedHash = createHash('sha256').update(supplied).digest();
+  const configuredHash = createHash('sha256').update(configured).digest();
+  return timingSafeEqual(suppliedHash, configuredHash);
+}
+
 export function authenticate(request: Request) {
   const configuredKeys = (process.env.FEEDBACK_API_KEYS ?? '').split(',').map((key) => key.trim()).filter(Boolean);
-  const supplied = request.headers.get('x-api-key') ?? request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+  const supplied = suppliedApiKey(request);
   if (!supplied || configuredKeys.length === 0) return null;
+  const clientIndex = configuredKeys.findIndex((key) => matchesKey(supplied, key));
+  return clientIndex >= 0 ? `client_${clientIndex + 1}` : null;
+}
 
-  const suppliedHash = createHash('sha256').update(supplied).digest('hex');
-  const client = configuredKeys.find((key) => createHash('sha256').update(key).digest('hex') === suppliedHash);
-  return client ? `client_${configuredKeys.indexOf(client) + 1}` : null;
+export type DashboardIdentity = { client: string; projectIds: string[] | null };
+
+export function authenticateDashboard(request: Request): DashboardIdentity | null {
+  const supplied = suppliedApiKey(request);
+  const entries = (process.env.DASHBOARD_API_KEYS ?? '').split(',').map((entry) => entry.trim()).filter(Boolean);
+  if (!supplied || entries.length === 0) return null;
+
+  const matchIndex = entries.findIndex((entry) => {
+    const separator = entry.indexOf('=');
+    return separator > 0 && matchesKey(supplied, entry.slice(0, separator));
+  });
+  if (matchIndex < 0) return null;
+
+  const permissions = entries[matchIndex].slice(entries[matchIndex].indexOf('=') + 1).split('|').map((value) => value.trim()).filter(Boolean);
+  return { client: `dashboard_${matchIndex + 1}`, projectIds: permissions.includes('*') ? null : permissions };
 }
 
 export function checkRateLimit(client: string) {
@@ -33,8 +58,19 @@ export function checkRateLimit(client: string) {
   return { allowed: true, remaining: MAX_REQUESTS_PER_WINDOW - current.count, retryAfter: 0 };
 }
 
+function redactLogValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value
+      .replace(/Bearer\s+[A-Za-z0-9._~-]+/gi, 'Bearer [REDACTED]')
+      .replace(/(?:api[_-]?key|secret|token|password)\s*[:=]\s*\S+/gi, '$1=[REDACTED]');
+  }
+  if (Array.isArray(value)) return value.map(redactLogValue);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactLogValue(entry)]));
+  return value;
+}
+
 export function logFeedbackApiEvent(event: Record<string, unknown>) {
-  console.info(JSON.stringify({ service: 'feedback-api', timestamp: new Date().toISOString(), ...event }));
+  console.info(JSON.stringify(redactLogValue({ service: 'feedback-api', timestamp: new Date().toISOString(), ...event })));
 }
 
 export function withRequestHeaders(response: Response, requestId: string, remaining?: number) {
