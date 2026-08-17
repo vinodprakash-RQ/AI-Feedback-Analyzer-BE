@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { errorResponse, authenticate, checkRateLimit, getRequestId, idempotencyKey, isUniqueConstraintError, logFeedbackApiEvent, withRequestHeaders } from '@/lib/feedback-api';
 import { feedbackIngestionSchema } from '@/schemas/feedback-ingestion';
-import { createFeedbackSubmission, enqueueFeedbackAnalysis, findByIdempotencyKey } from '@/services/feedback-ingestion.service';
+import { createFeedbackSubmission, feedbackFingerprint, findByIdempotencyKey } from '@/services/feedback-ingestion.service';
 
 export const runtime = 'nodejs';
 
@@ -34,20 +34,30 @@ export async function POST(request: Request) {
   }
 
   const key = idempotencyKey(request);
+  const fingerprint = feedbackFingerprint(parsed.data);
   if (key) {
     const existing = await findByIdempotencyKey(apiClient, key);
-    if (existing) return acknowledgement(existing.id, existing.createdAt, requestId, limit.remaining);
+    if (existing) {
+      if (existing.idempotencyFingerprint && existing.idempotencyFingerprint !== fingerprint) {
+        return errorResponse(requestId, 409, 'idempotency_key_reused', 'Idempotency-Key was already used with a different payload', limit.remaining);
+      }
+      return acknowledgement(existing.id, existing.createdAt, requestId, limit.remaining);
+    }
   }
 
   try {
-    const feedback = await createFeedbackSubmission(parsed.data, apiClient, key);
-    enqueueFeedbackAnalysis(feedback.id, requestId);
+    const feedback = await createFeedbackSubmission(parsed.data, apiClient, key, fingerprint);
     logFeedbackApiEvent({ event: 'feedback_received', feedback_id: feedback.id, api_client: apiClient, request_id: requestId });
     return acknowledgement(feedback.id, feedback.createdAt, requestId, limit.remaining);
   } catch (error) {
     if (key && isUniqueConstraintError(error)) {
       const existing = await findByIdempotencyKey(apiClient, key);
-      if (existing) return acknowledgement(existing.id, existing.createdAt, requestId, limit.remaining);
+      if (existing) {
+        if (existing.idempotencyFingerprint && existing.idempotencyFingerprint !== fingerprint) {
+          return errorResponse(requestId, 409, 'idempotency_key_reused', 'Idempotency-Key was already used with a different payload', limit.remaining);
+        }
+        return acknowledgement(existing.id, existing.createdAt, requestId, limit.remaining);
+      }
     }
     logFeedbackApiEvent({ event: 'feedback_receive_failed', api_client: apiClient, request_id: requestId, error: String(error) });
     return errorResponse(requestId, 500, 'feedback_not_received', 'Feedback could not be accepted', limit.remaining);

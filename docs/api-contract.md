@@ -17,11 +17,12 @@ All examples below are relative to that host.
 | Method | Endpoint | Purpose | Authentication |
 | --- | --- | --- | --- |
 | `POST` | `/api/v1/feedback` | Accept third-party feedback asynchronously | API key required |
-| `GET` | `/api/issues` | List and filter issues | Not currently enforced |
-| `GET` | `/api/issues/:id` | Retrieve issue details | Not currently enforced |
-| `GET` | `/api/feedback` | Deprecated read-only alias for issue listing | Not currently enforced |
-| `GET` | `/api/feedback/:id` | Deprecated read-only alias for issue details | Not currently enforced |
-| `GET` | `/api/dashboard/summary` | Deprecated endpoint; dashboard summary is not part of this module | Not currently enforced |
+| `GET` | `/api/issues` | List and filter issues | Dashboard API key required |
+| `GET` | `/api/issues/:id` | Retrieve issue details | Dashboard API key required |
+| `PATCH` | `/api/issues/:id` | Update issue workflow status | Dashboard API key required |
+| `GET` | `/api/feedback` | Deprecated read-only alias for issue listing | Dashboard API key required |
+| `GET` | `/api/feedback/:id` | Deprecated read-only alias for issue details | Dashboard API key required |
+| `GET` | `/api/dashboard/summary` | Deprecated endpoint; dashboard summary is not part of this module | Not applicable |
 
 ---
 
@@ -46,6 +47,8 @@ Authorization: Bearer <third-party-api-key>
 ```
 
 API keys are configured through the comma-separated `FEEDBACK_API_KEYS` environment variable.
+
+Issue read endpoints use a separate dashboard key. Configure `DASHBOARD_API_KEYS` as `key=project_id_1|project_id_2` entries; use `*` for all projects.
 
 ### Request headers
 
@@ -161,6 +164,8 @@ The background analysis determines and stores:
 - `model`
 - `promptVersion`
 
+The worker performs at most 10 Gemini analysis attempts per UTC calendar day. Additional submissions remain persisted with pending analysis and are processed by later scheduled worker runs. Each Gemini attempt, including a retry, consumes one of the 10 daily slots.
+
 These internal processing fields are intentionally not returned to the third-party caller by the submission endpoint.
 
 ---
@@ -169,20 +174,21 @@ These internal processing fields are intentionally not returned to the third-par
 
 ### `GET /api/issues`
 
-Returns a paginated list of issues. The current implementation reads typed mock data, allowing the frontend to integrate before a production issue data source is connected.
+Returns a paginated list of persisted issues. Dashboard authentication is required. Project-scoped dashboard keys can only retrieve their permitted projects.
 
 ### Query parameters
 
 | Parameter | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `category` | enum | No | — | `APPLICATION_GENERATION`, `AI_RESPONSE`, `BUILD_FAILURE`, `UI_UX`, `AUTHENTICATION`, `PERFORMANCE`, `INTEGRATION`, `OTHER` |
+| `category` | enum | No | — | `APPLICATION_GENERATION`, `AI_RESPONSE`, `BUILD_FAILURE`, `UI_UX`, `AUTHENTICATION`, `PERFORMANCE`, `INTEGRATION`, `PRODUCT_UI`, `FEATURE_REQUEST`, `PAYMENTS`, `CUSTOMER_SUPPORT`, `BUG_MOBILE`, `USABILITY`, `NOTIFICATIONS`, `ONBOARDING`, `SECURITY`, `AVAILABILITY`, `GENERAL`, `OTHER` |
 | `subcategory` | string | No | — | Case-insensitive exact sub-category match |
-| `sentiment` | enum | No | — | `POSITIVE`, `NEUTRAL`, `NEGATIVE`, `FRUSTRATED` |
+| `sentiment` | enum | No | — | `POSITIVE`, `NEUTRAL`, `NEGATIVE`, `FRUSTRATED`, `MIXED` |
 | `severity` | enum | No | — | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
 | `status` | enum | No | — | `NEW`, `INVESTIGATING`, `RESOLVED`, `CLOSED` |
 | `from` | ISO date | No | — | Inclusive start date, for example `2026-08-01` |
 | `to` | ISO date | No | — | Inclusive end date, for example `2026-08-31` |
 | `search` | string | No | — | Case-insensitive search across issue summary and original feedback; maximum 200 characters |
+| `project_id` | string | No | — | Project filter; must be permitted by the dashboard API key |
 | `sort` | enum | No | `newest` | `newest`, `oldest`, or `severity` |
 | `page` | integer | No | `1` | Minimum `1` |
 | `pageSize` | integer | No | `25` | Range `1`–`100` |
@@ -278,7 +284,55 @@ The response is one issue object with the same fields described in the list resp
 
 ---
 
-## 4. Deprecated Feedback Aliases
+## 4. Update Issue Status
+
+### `PATCH /api/issues/:id`
+
+Updates the workflow status of an issue. This endpoint requires a dashboard API key with access to the issue's project.
+
+Headers:
+
+```http
+Content-Type: application/json
+x-api-key: <dashboard-api-key>
+```
+
+Request body:
+
+```json
+{
+  "status": "CLOSED"
+}
+```
+
+Allowed statuses:
+
+```text
+NEW
+INVESTIGATING
+RESOLVED
+CLOSED
+```
+
+A successful update returns the updated issue object with status `200 OK`.
+
+To close an issue specifically:
+
+```http
+PATCH /api/issues/<feedback_id>
+```
+
+```json
+{
+  "status": "CLOSED"
+}
+```
+
+Possible errors are `400 invalid_json`, `401 invalid_dashboard_api_key`, `404 issue_not_found`, and `422 validation_failed`.
+
+---
+
+## 5. Deprecated Feedback Aliases
 
 These endpoints are retained for compatibility with earlier frontend integration work. New consumers should use `/api/issues`.
 
@@ -294,7 +348,7 @@ The previous feedback ingestion, update, and delete methods are intentionally no
 
 ---
 
-## 5. Deprecated Dashboard Summary
+## 6. Deprecated Dashboard Summary
 
 ### `GET /api/dashboard/summary`
 
@@ -347,5 +401,5 @@ const acknowledgement = await response.json();
 
 - This document reflects the current route handlers and validation schemas.
 - The ingestion endpoint is persistence-backed through Prisma.
-- The issue list currently uses mock data and is intended to be replaced by a REST or database adapter.
-- No authentication is currently enforced on internal issue-list routes; add internal authentication before exposing them outside a trusted network.
+- The issue list and status updates are persistence-backed through Prisma.
+- Issue routes require dashboard authentication and project-scoped access.

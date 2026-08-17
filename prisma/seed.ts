@@ -65,7 +65,7 @@ async function main() {
         projectId: `project_seed_${((index % 5) + 1).toString().padStart(2, '0')}`,
         conversationId: `conversation_seed_${String(index + 1).padStart(2, '0')}`,
         metadata: { seed: true, sampleRow: index + 1, environment: 'development' },
-        analysis: {
+        analysisRuns: {
           create: {
             sentiment,
             intent,

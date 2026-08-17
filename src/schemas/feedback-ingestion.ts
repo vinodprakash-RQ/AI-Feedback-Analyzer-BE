@@ -8,11 +8,15 @@ export const feedbackIngestionSchema = z.object({
   conversation_id: optionalText,
   project_id: optionalText,
   source: z.string().trim().max(120).optional(),
-  page_url: z.string().trim().max(2_048).refine((value) => value.startsWith('/') || URL.canParse(value), 'page_url must be a URL or path').optional(),
+  page_url: z.string().trim().max(2_048).refine((value) => {
+    if (value.startsWith('/')) return true;
+    if (!URL.canParse(value)) return false;
+    return ['http:', 'https:'].includes(new URL(value).protocol);
+  }, 'page_url must be an HTTP(S) URL or path').optional(),
   user_agent: z.string().max(1_000).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 }).superRefine((value, context) => {
-  if (value.metadata && JSON.stringify(value.metadata).length > 10_000) {
+  if (value.metadata && Buffer.byteLength(JSON.stringify(value.metadata), 'utf8') > 10_000) {
     context.addIssue({ code: 'custom', path: ['metadata'], message: 'metadata cannot exceed 10,000 bytes' });
   }
 });
