@@ -4,11 +4,13 @@ This document describes the backend endpoints currently exposed by the Feedback 
 
 ## Base URL
 
-Use the deployment host as the base URL:
+For local development, use:
 
 ```text
-https://api.example.com
+http://localhost:4000
 ```
+
+For another deployment, replace the host with that environment's API URL. Never commit real API secrets to this document; use the placeholders below.
 
 All examples below are relative to that host.
 
@@ -46,9 +48,26 @@ or:
 Authorization: Bearer <third-party-api-key>
 ```
 
-API keys are configured through the comma-separated `FEEDBACK_API_KEYS` environment variable.
+Configure the local environment with secret placeholders:
 
-Issue read endpoints use a separate dashboard key. Configure `DASHBOARD_API_KEYS` as `key=project_id_1|project_id_2` entries; use `*` for all projects.
+```env
+FEEDBACK_API_KEYS="<FEEDBACK_API_KEY>"
+DASHBOARD_API_KEYS="<DASHBOARD_API_KEY>=*"
+```
+
+Use the feedback key only for `POST /api/v1/feedback`:
+
+```http
+x-api-key: <FEEDBACK_API_KEY>
+```
+
+Use the dashboard key for `/api/issues` and issue status updates:
+
+```http
+x-api-key: <DASHBOARD_API_KEY>
+```
+
+`DASHBOARD_API_KEYS` uses `key=project_id_1|project_id_2` entries. The `*` grants access to all projects. Send only the key portion in the request header, not the project permission suffix.
 
 ### Request headers
 
