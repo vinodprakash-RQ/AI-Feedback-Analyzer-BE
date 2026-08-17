@@ -6,6 +6,7 @@ import { analyzeFeedbackWithGemini } from '@/services/gemini-analysis.service';
 import type { FeedbackIngestionInput } from '@/schemas/feedback-ingestion';
 
 const MAX_ANALYSIS_ATTEMPTS = 3;
+const GEMINI_DAILY_LIMIT = 10;
 const LOCK_TIMEOUT_MS = 10 * 60 * 1000;
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000];
 
@@ -52,6 +53,19 @@ function latestRun(submission: SubmissionWithRun) {
   return [...submission.analysisRuns].sort((left, right) => right.attempt - left.attempt)[0];
 }
 
+async function reserveGeminiDailySlot() {
+  const rows = await prisma.$queryRaw<Array<{ processedCount: number }>>`
+    INSERT INTO "GeminiDailyUsage" ("day", "processedCount", "updatedAt")
+    VALUES (CURRENT_DATE, 1, CURRENT_TIMESTAMP)
+    ON CONFLICT ("day") DO UPDATE
+      SET "processedCount" = "GeminiDailyUsage"."processedCount" + 1,
+          "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "GeminiDailyUsage"."processedCount" < ${GEMINI_DAILY_LIMIT}
+    RETURNING "processedCount"
+  `;
+  return rows.length > 0;
+}
+
 async function claimNextAnalysisJob() {
   const now = new Date();
   await prisma.feedbackAnalysisRun.updateMany({
@@ -69,7 +83,24 @@ async function claimNextAnalysisJob() {
     where: { id: candidate.id, status: 'PENDING' },
     data: { status: 'PROCESSING', lockedAt: now },
   });
-  return claimed.count === 1 ? candidate.id : null;
+  if (claimed.count !== 1) return null;
+
+  if (!(await reserveGeminiDailySlot())) {
+    await prisma.$transaction([
+      prisma.feedbackAnalysisRun.update({
+        where: { id: candidate.id },
+        data: { status: 'PENDING', lockedAt: null },
+      }),
+      prisma.feedbackSubmission.update({
+        where: { id: candidate.feedbackId },
+        data: { status: candidate.attempt === 1 ? 'RECEIVED' : 'PROCESSING' },
+      }),
+    ]);
+    return null;
+  }
+
+  await prisma.feedbackSubmission.update({ where: { id: candidate.feedbackId }, data: { status: 'PROCESSING' } });
+  return candidate.id;
 }
 
 export async function processFeedbackAnalysis(runId: string, requestId = 'worker') {
@@ -78,17 +109,20 @@ export async function processFeedbackAnalysis(runId: string, requestId = 'worker
 
   try {
     const result = await analyzeFeedbackWithGemini(run.feedback.message);
-    await prisma.feedbackAnalysisRun.update({
-      where: { id: runId },
-      data: {
-        ...result,
-        status: 'COMPLETED',
-        completedAt: new Date(),
-        lockedAt: null,
-        errorCode: null,
-        errorMessage: null,
-      },
-    });
+    await prisma.$transaction([
+      prisma.feedbackAnalysisRun.update({
+        where: { id: runId },
+        data: {
+          ...result,
+          status: 'COMPLETED',
+          completedAt: new Date(),
+          lockedAt: null,
+          errorCode: null,
+          errorMessage: null,
+        },
+      }),
+      prisma.feedbackSubmission.update({ where: { id: run.feedbackId }, data: { status: 'COMPLETED' } }),
+    ]);
     logFeedbackApiEvent({ event: 'feedback_analysis_completed', feedback_id: run.feedbackId, run_id: runId, request_id: requestId });
   } catch (error) {
     const retryable = run.attempt < MAX_ANALYSIS_ATTEMPTS;
@@ -98,6 +132,10 @@ export async function processFeedbackAnalysis(runId: string, requestId = 'worker
       await transaction.feedbackAnalysisRun.update({
         where: { id: runId },
         data: { status: 'FAILED', nextAttemptAt: new Date(), lockedAt: null, errorCode, errorMessage },
+      });
+      await transaction.feedbackSubmission.update({
+        where: { id: run.feedbackId },
+        data: { status: retryable ? 'PROCESSING' : 'FAILED' },
       });
       if (retryable) {
         await transaction.feedbackAnalysisRun.create({
@@ -124,12 +162,6 @@ export async function processPendingAnalysisJobs(requestId = 'worker', maxJobs =
   let processed = 0;
   while (processed < maxJobs && await processNextAnalysisJob(requestId)) processed += 1;
   return processed;
-}
-
-export function enqueueFeedbackAnalysis() {
-  // The database outbox is authoritative. This opportunistically starts local work;
-  // a separate worker must process pending jobs in production.
-  queueMicrotask(() => void processPendingAnalysisJobs('request-worker', 1));
 }
 
 export function getLatestAnalysis(submission: SubmissionWithRun) {

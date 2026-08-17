@@ -164,6 +164,8 @@ The background analysis determines and stores:
 - `model`
 - `promptVersion`
 
+The worker performs at most 10 Gemini analysis attempts per UTC calendar day. Additional submissions remain persisted with pending analysis and are processed by later scheduled worker runs. Each Gemini attempt, including a retry, consumes one of the 10 daily slots.
+
 These internal processing fields are intentionally not returned to the third-party caller by the submission endpoint.
 
 ---

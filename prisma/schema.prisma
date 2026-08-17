@@ -111,6 +111,12 @@ model FeedbackSubmission {
   @@index([issueStatus, createdAt])
 }
 
+model GeminiDailyUsage {
+  day           DateTime @id @db.Date
+  processedCount Int      @default(0)
+  updatedAt     DateTime @updatedAt
+}
+
 model FeedbackAnalysisRun {
   id            String           @id @default(cuid())
   feedbackId    String

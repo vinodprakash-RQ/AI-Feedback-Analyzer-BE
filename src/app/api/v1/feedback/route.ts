@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { errorResponse, authenticate, checkRateLimit, getRequestId, idempotencyKey, isUniqueConstraintError, logFeedbackApiEvent, withRequestHeaders } from '@/lib/feedback-api';
 import { feedbackIngestionSchema } from '@/schemas/feedback-ingestion';
-import { createFeedbackSubmission, enqueueFeedbackAnalysis, feedbackFingerprint, findByIdempotencyKey } from '@/services/feedback-ingestion.service';
+import { createFeedbackSubmission, feedbackFingerprint, findByIdempotencyKey } from '@/services/feedback-ingestion.service';
 
 export const runtime = 'nodejs';
 
@@ -47,7 +47,6 @@ export async function POST(request: Request) {
 
   try {
     const feedback = await createFeedbackSubmission(parsed.data, apiClient, key, fingerprint);
-    enqueueFeedbackAnalysis();
     logFeedbackApiEvent({ event: 'feedback_received', feedback_id: feedback.id, api_client: apiClient, request_id: requestId });
     return acknowledgement(feedback.id, feedback.createdAt, requestId, limit.remaining);
   } catch (error) {
